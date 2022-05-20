@@ -391,27 +391,6 @@ class FutureTradingEnvDiscrete(gym.Env):
         assert self.action_space.contains(action), err_msg
 
         self.action_buffer.append(action)
-
-        # get states
-        # make action: position, current_cash, average_position_price, current_account_valuation changes
-        # calculate reward for current action
-        # move 1 tick: current_chart index, current_price, average_position_price, current_account_valuation, tick_to_close changes
-
-        # done = self.tick_to_close == 0
-
-        # if not self.train:
-        #     print(f'-------- DATE: {self.current_date} TTC: {self.tick_to_close} ----------')
-        #     print(f'초기 계좌 평가액: {self.initial_account_valuation}')
-        #     print(f'현재가: {self.current_price}')
-        #     print(f'계좌 평가액: {self.current_account_valuation}')
-        #     print(f'현금: {self.current_cash}')
-        #     print(f'포지션 평가액: {self.current_position_valuation}')
-        #     print(f'평단가: {self.average_position_price}')
-        #     print(f'포지션: {self.position}')
-        #     print(f'normalized position: {self.normalized_position}')
-        #     print('')
-
-        # new_normalized_position = action[0] if not done else 0.
         if False:
             new_normalized_position = self._new_normalized_position_list[action]
         else:
@@ -430,12 +409,6 @@ class FutureTradingEnvDiscrete(gym.Env):
         realized_profit, holded = self._trade(new_normalized_position=new_normalized_position)
 
         assert (holded and (realized_profit == 0)) or not holded, 'Something is wrong'
-        # if not self.train:
-        #     print(f'action: {action}')
-        #     if holded:
-        #         print(f'*** HOLD {self.position} ***')
-        #     else:
-        #         print(f'*** {old_position} -> {self.position} ({self.position - old_position}) ***')
 
         reward = 0
 
@@ -471,29 +444,6 @@ class FutureTradingEnvDiscrete(gym.Env):
                     realized_reward = realized_reward * weight_positive_r if realized_reward > 0 else realized_reward
                 reward += realized_reward
 
-        # tick
-        # evaluate current_price
-        self.tick_to_close -= 1
-        for ic in self.input_config['chart']:
-            if ic == '1분':
-                self.current_chart[ic]['current_idx'] += 1
-                new_idx = self.current_chart[ic]['current_idx']
-                columns = self.current_chart[ic]['columns']
-                past_tick_price = self.current_price
-                self.current_price = self.current_chart[ic]['data'][new_idx][columns.index('close')]
-                if use_reward_p:  # position reward
-                    delta_price = self.current_price - past_tick_price
-                    position_reward = delta_price * self.position / self.initial_account_valuation
-                    # position_reward = position_reward ** 3
-                    # if not self.train:
-                    #     print(f'delta position: {delta_price * self.position}')
-                    if position_reward > 0 or allow_negative_p:  # allow negative?
-                        if weight_positive_p is not None:
-                            position_reward = position_reward * weight_positive_p if position_reward > 0 else position_reward
-                        reward += position_reward
-                if holded and use_hold_bonus:  # hold bonus
-                    if self.position != 0:
-                        reward += 0.01
 
         if use_no_action_penalty:
             last_n_actions = np.asarray(self.action_buffer[-no_action_penalty_n:])
@@ -526,64 +476,12 @@ class FutureTradingEnvDiscrete(gym.Env):
         columns = [x[0] for x in self.db_cursor.description]
         return data, columns
 
-    def _parse_date_from_1min_candle(self):
-        required_past_dates = 0
-        for ic in self.input_config['chart']:
-            if ic == '1분':
-                required_past_dates = max(required_past_dates, math.ceil(self.input_config['chart'][ic]['N'] / 378))
-            elif ic == '60분':
-                required_past_dates = max(required_past_dates, math.ceil(self.input_config['chart'][ic]['N'] / 7))
-        query_start_date_time = self._add_time_to_date(self.start_date, 000000)
-        query_end_date_time = self._add_time_to_date(self.end_date, 999999)
-        data, columns = self._get_chart_data(self.current_code, '1분', query_start_date_time, query_end_date_time)
-        date_idx = columns.index('date')
-        self.parsed_date_list = sorted(list(set((data[:, date_idx] // 1000000).tolist())))
-        assert required_past_dates < len(self.parsed_date_list), f'At least {required_past_dates} + 1 dates are required for simulation'
-        self.simulatable_date_idx_list = list(range(required_past_dates, len(self.parsed_date_list)))
 
     def _add_time_to_date(self, date: int, time: int) -> int:
         d, t = f'{date:08}', f'{time:06}'
         assert len(f'{date:08}') == 8, 'date must be 8 digits integer'
         assert len(f'{time:06}') == 6, 'time must be 6 digits integer'
         return int(d + t)
-
-    def _prepare_1min_chart(self):
-        ic = '1분'
-        required_past_dates = math.ceil(self.input_config['chart'][ic]['N'] / 378)
-        query_start_date_time = self._add_time_to_date(self.parsed_date_list[self.current_date_idx - required_past_dates], 000000)
-        query_end_date_time = self._add_time_to_date(self.parsed_date_list[self.current_date_idx - 1], 999999)
-        past_data, _ = self._get_chart_data(self.current_code, ic, query_start_date_time, query_end_date_time)
-        assert past_data.shape[0] > 0, f'No data found for table: {self.validated_code_dict[self.current_code]}_{self.current_code}_{ic}. date: {query_start_date_time} ~ {query_end_date_time}'
-        if past_data.shape[0] < self.input_config['chart'][ic]['N']:
-            self.current_chart = None
-            print(f'Retrying since code {self.current_code} has only {past_data.shape[0]} ticks on past date {query_start_date_time} ~ {query_end_date_time}')
-            return
-
-        query_start_date_time = self._add_time_to_date(self.current_date, 000000)
-        query_end_date_time = self._add_time_to_date(self.current_date, 999999)
-        data, columns = self._get_chart_data(self.current_code, ic, query_start_date_time, query_end_date_time)
-        assert data.shape[0] > 0, f'No data found for table: {self.validated_code_dict[self.current_code]}_{self.current_code}_{ic}. date: {query_start_date_time} ~ {query_end_date_time}'
-        # if data.shape[0] < 380:
-        #     self.current_chart = None
-        #     print(f'Retrying since code {self.current_code} has only {data.shape[0]} ticks through date {query_start_date_time} ~ {query_end_date_time}')
-        #     return
-
-        open_idx = len(past_data)
-        ticks_per_trading_day = min(len(data), self.ticks_per_trading_day)
-        close_idx = open_idx + ticks_per_trading_day - 1
-
-        use_random_date = False
-        if self.train and use_random_date:
-            start_idx = open_idx + int(np.random.uniform(low=0, high=ticks_per_trading_day - 1))
-        else:
-            start_idx = open_idx
-
-        self.current_chart[ic] = dict()
-        self.current_chart[ic]['columns'] = columns
-        self.tick_to_close = close_idx - start_idx
-        self.current_chart[ic]['current_idx'] = start_idx
-        self.current_chart[ic]['data'] = np.concatenate([past_data, data], axis=0)  # should be np.ndarray of ohlc needed to simulate a trading day
-        self.current_price = self.current_chart[ic]['data'][start_idx][columns.index('close')]
 
     def _get_num_contract(self):
         if self.position > 0:
@@ -616,25 +514,6 @@ class FutureTradingEnvDiscrete(gym.Env):
             if _past_code != self.current_code:
                 self._parse_date_from_1min_candle()
 
-            if date_idx is None:
-                self.current_date_idx = np.random.choice(self.simulatable_date_idx_list)
-            else:
-                assert date_idx in self.simulatable_date_idx_list, 'Given date is not in range of simulation'
-                self.current_date_idx = date_idx
-            self.current_date = self.parsed_date_list[self.current_date_idx]
-
-            self.current_chart = dict()
-            assert '1분' in self.input_config['chart'], '1분봉은 필수'
-
-            for ic in self.input_config['chart']:
-                if ic == '1분':
-                    self._prepare_1min_chart()
-                elif ic == '60분':
-                    required_past_dates = math.ceil(self.input_config['chart'][ic]['N'] / 7)
-                    raise NotImplementedError
-                elif ic == '1일':
-                    required_past_dates = math.ceil(self.input_config['chart'][ic]['N'])
-                    raise NotImplementedError
 
             if self.current_chart is None:
                 assert code is None and date_idx is None, f'Given code and date_idx is wrong. code: {code}, date_idx: {date_idx}'
@@ -670,10 +549,3 @@ class FutureTradingEnvDiscrete(gym.Env):
             self.viewer = None
 
 
-if __name__ == '__main__':
-    db_file_path = 'db/200810_025124_주식분봉_122630.db'
-    input_config = {'chart': {'1분': {'N': 1, 'columns': ['close']}}, 'account': ['position', 'average_posiion']}
-    env = FutureTradingEnvDiscrete(db_file_path=db_file_path, start_date=20190801, end_date=20200131, input_config=input_config)
-
-    obs = env.reset()
-    cav, iav, price, ttc, cpv, cash, p, app, norm_p = env.current_account_valuation, env.initial_account_valuation, env.current_price, env.tick_to_close, env.current_position_valuation, env.current_cash, env.position, env.average_position_price, env.normalized_position
