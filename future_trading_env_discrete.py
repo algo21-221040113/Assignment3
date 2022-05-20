@@ -9,67 +9,6 @@ import numpy as np
 
 
 class FutureTradingEnvDiscrete(gym.Env):
-    """
-    Description:
-        Future chart data is prepared for given term. Not only Future charts, any charts of an asset, such as ETF or stock, can also be used.
-
-    Source:
-        This environment is solely created by Seungho Han
-
-    Observation:
-        Every observation includes
-            1. past chart data
-            2. account info
-            3. position info
-            4. time info (hint for market closing time)
-
-        spaces.Dict({
-            "chart": spaces.Tuple((spaces.Box(shape=(N, 4)), spaces.Box(shape=(N, 4)))),
-            "account_valuation": spaces.Box(1),
-            "average_position_price": spaces.Box(1),
-            "position": spaces.Box(1),
-            "current_price_to_current_account_valuation": spaces.Box(1),
-            "tick_to_close": spaces.Box(1),
-        })
-
-        chart: Box(N, 4)
-        Num	    name    Min     Max
-        0	    open    0.      inf
-        1	    high    0.      inf
-        2	    low     0.      inf
-        3	    close   0.      inf
-
-       #account_valuation: Box(1) (current_account_valuation / initial_account_valuation)
-       #Num	    name    Min     Max
-       #0	    open    0.      inf
-
-        average_position_price: Box(1) (average_position_price / current_price)
-
-        position: Box(1) (average_position_price * num_contracts / current_account_valuation)
-
-        current_price_to_current_account_valuation: Box(1) (current_price / current_account_valuation)
-
-    Actions:
-        Every action sets position for the asset which is expressed by a float number of interval [-1, 1]
-        Type: Box(1)
-        Num	    Action      Min     Max
-        0	    Position    -1.     1.
-
-    Reward:
-        Reward is given when position is liquidated, by the value representing earned reward by that contract
-        Actual reward is calculated as (realzied profit / initial account valuation)
-        At terminating step, reward is calculated regarding the action is 0.
-        TODO: force to make 0. action at terminating step by giving large penalty reward when not
-
-    Starting State:
-        Every env.reset() call sets
-            1. random chart data (etc. random code, random date)
-            2. random initial account valuation (random value of interval [asset price x 3, asset price x 1000])
-            3. random position (random value of interval [100, 200])
-
-    Episode Termination:
-        Market closes. Actually, at 15:19:00, when 1518 candle is completed, episode ends with liquidating all position.
-    """
 
     metadata = {
         'render.modes': ['human', 'rgb_array'],
@@ -170,18 +109,7 @@ class FutureTradingEnvDiscrete(gym.Env):
         for code, data in code_dict.items():
             if sum(list(map(lambda data_key: data_key in self.input_config['chart'] or data_key == 'asset_type', data))) == len(self.input_config['chart']) + 1:
                 self.validated_code_dict[code] = data['asset_type']
-        # codes_to_remove = list()
-        # for code in self.validated_code_dict:
-        #     query_start_date_time = self._add_time_to_date(self.start_date, 000000)
-        #     query_end_date_time = self._add_time_to_date(self.end_date, 999999)
-        #     data, columns = self._get_chart_data(code, '1분', query_start_date_time, query_end_date_time)
-        #     if len(data) < 1000:
-        #         print('***')
-        #         print(f'WARNING: Removing {code} since it has {len(data)} data for date {self.start_date} ~ {self.end_date}')
-        #         print('***')
-        #         codes_to_remove.append(code)
-        # for code in codes_to_remove:
-        #     self.validated_code_dict.pop(code)
+
 
     def _normalize_price(self, price):
         return price / self.current_price - 1
@@ -749,54 +677,3 @@ if __name__ == '__main__':
 
     obs = env.reset()
     cav, iav, price, ttc, cpv, cash, p, app, norm_p = env.current_account_valuation, env.initial_account_valuation, env.current_price, env.tick_to_close, env.current_position_valuation, env.current_cash, env.position, env.average_position_price, env.normalized_position
-    print('-----계좌 정보-----')
-    print(f'초기 계좌 평가액: {iav}')
-    print(f'현재가: {price}')
-    print(f'계좌 평가액: {cav}')
-    print(f'현금: {cash}')
-    print(f'포지션 평가액: {cpv}')
-    print(f'평단가: {app}')
-    print(f'포지션: {p}')
-    print(f'normalized position: {norm_p}')
-    print(f'-----------------------------\n')
-    n_steps = 50
-    for _ in range(n_steps):
-        # Random action
-        action = env.action_space.sample()
-        obs, reward, done, info = env.step(action)
-        print(f'-----action = {action}-----')
-        print(f'reward: {reward}')
-        print(f'done: {done}')
-        print(f'-----------------------------')
-        cav, iav, price, ttc, cpv, cash, p, app, norm_p = env.current_account_valuation, env.initial_account_valuation, env.current_price, env.tick_to_close, env.current_position_valuation, env.current_cash, env.position, env.average_position_price, env.normalized_position
-        print('-----계좌 정보-----')
-        print(f'초기 계좌 평가액: {iav}')
-        print(f'현재가: {price}')
-        print(f'계좌 평가액: {cav}')
-        print(f'현금: {cash}')
-        print(f'포지션 평가액: {cpv}')
-        print(f'평단가: {app}')
-        print(f'포지션: {p}')
-        print(f'normalized position: {norm_p}')
-        print(f'-----------------------------\n')
-
-    #
-    # d = env.reset()
-    # while True:
-    #     cav, iav, price, ttc, cpv, cash, p, app, norm_p = env.current_account_valuation, env.initial_account_valuation, env.current_price, env.tick_to_close, env.current_position_valuation, env.current_cash, env.position, env.average_position_price, env.normalized_position
-    #     print('-----계좌 정보-----')
-    #     print(f'초기 계좌 평가액: {iav}')
-    #     print(f'현재가: {price}')
-    #     print(f'계좌 평가액: {cav}')
-    #     print(f'현금: {cash}')
-    #     print(f'포지션 평가액: {cpv}')
-    #     print(f'평단가: {app}')
-    #     print(f'포지션: {p}')
-    #     print(f'normalized position: {norm_p}')
-    #     action = np.random.uniform(-1, 1, (1,))
-    #     print(f'-----action = {action}-----')
-    #     _, reward, done, _ = env.step(action)
-    #     print(f'reward: {reward}')
-    #     print(f'done: {done}')
-    #     print(f'-----------------------------\n')
-    # print(d)

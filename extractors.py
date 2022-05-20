@@ -32,9 +32,6 @@ def get_ext(input_config):
             x = tf.keras.layers.AveragePooling1D()(x)
             x = tf.keras.layers.Conv1D(64, 7)(x)
             x = tf.keras.layers.ReLU()(x)
-            # x = tf.keras.layers.AveragePooling1D()(x)
-            # x = tf.keras.layers.Conv1D(64, 7)(x)
-            # x = tf.keras.layers.ReLU()(x)
             x = tf.keras.layers.GlobalAveragePooling1D()(x)
             # x = tf.keras.layers.LSTM(8)(x)
             chart_features.append(x)
@@ -88,25 +85,11 @@ def get_extractor(input_config):
         for chart in charts_reshaped:
             chart_features.append(chart_feature_extractor_lstm(chart))
 
-        # account_features = [
-        #     average_position_price, tf.square(average_position_price), tf.sqrt(average_position_price),
-        #     position, tf.square(position),
-        #     current_price_to_current_account_valuation, tf.square(current_price_to_current_account_valuation), tf.sqrt(current_price_to_current_account_valuation),
-        #     tick_to_close, tf.square(tick_to_close), tf.sqrt(tick_to_close)]
         account_features = [average_position_price, position]
         skip = position
         features = tf.concat(chart_features + account_features, axis=-1)
         features = tf.keras.layers.Dense(64, kernel_initializer=tf.keras.initializers.Orthogonal(np.sqrt(2)))(features)
         features = tf.keras.layers.Activation('tanh')(features)
-        # features = tf.keras.layers.Dropout(0.5)(features)
-        # features = tf.keras.layers.Dropout(0.5)(features)
-        # features = tf.keras.layers.Dense(128, kernel_initializer=tf.keras.initializers.Orthogonal(np.sqrt(2)))(features)
-        # features = tf.keras.layers.Activation('tanh')(features)
-        # features = tf.keras.layers.Dropout(0.5)(features)
-        # features = tf.keras.layers.Dense(128, kernel_initializer=tf.keras.initializers.Orthogonal(np.sqrt(2)))(features)
-        # features = tf.keras.layers.ReLU()(features)
-        # features = tf.tanh(linear(features, scope='extractor', n_hidden=128, init_scale=np.sqrt(2)))
-        # features = tf.tanh(linear(features, scope='extractor', n_hidden=128, init_scale=np.sqrt(2)))
-        return features, skip
+  return features, skip
 
     return _extractor

@@ -9,67 +9,6 @@ import numpy as np
 
 
 class FutureTradingEnv(gym.Env):
-    """
-    Description:
-        Future chart data is prepared for given term. Not only Future charts, any charts of an asset, such as ETF or stock, can also be used.
-
-    Source:
-        This environment is solely created by Seungho Han
-
-    Observation:
-        Every observation includes
-            1. past chart data
-            2. account info
-            3. position info
-            4. time info (hint for market closing time)
-
-        spaces.Dict({
-            "chart": spaces.Tuple((spaces.Box(shape=(N, 4)), spaces.Box(shape=(N, 4)))),
-            "account_valuation": spaces.Box(1),
-            "average_position_price": spaces.Box(1),
-            "position": spaces.Box(1),
-            "current_price_to_current_account_valuation": spaces.Box(1),
-            "tick_to_close": spaces.Box(1),
-        })
-
-        chart: Box(N, 4)
-        Num	    name    Min     Max
-        0	    open    0.      inf
-        1	    high    0.      inf
-        2	    low     0.      inf
-        3	    close   0.      inf
-
-       #account_valuation: Box(1) (current_account_valuation / initial_account_valuation)
-       #Num	    name    Min     Max
-       #0	    open    0.      inf
-
-        average_position_price: Box(1) (average_position_price / current_price)
-
-        position: Box(1) (average_position_price * num_contracts / current_account_valuation)
-
-        current_price_to_current_account_valuation: Box(1) (current_price / current_account_valuation)
-
-    Actions:
-        Every action sets position for the asset which is expressed by a float number of interval [-1, 1]
-        Type: Box(1)
-        Num	    Action      Min     Max
-        0	    Position    -1.     1.
-
-    Reward:
-        Reward is given when position is liquidated, by the value representing earned reward by that contract
-        Actual reward is calculated as (realzied profit / initial account valuation)
-        At terminating step, reward is calculated regarding the action is 0.
-        TODO: force to make 0. action at terminating step by giving large penalty reward when not
-
-    Starting State:
-        Every env.reset() call sets
-            1. random chart data (etc. random code, random date)
-            2. random initial account valuation (random value of interval [asset price x 3, asset price x 1000])
-            3. random position (random value of interval [100, 200])
-
-    Episode Termination:
-        Market closes. Actually, at 15:19:00, when 1518 candle is completed, episode ends with liquidating all position.
-    """
 
     metadata = {
         'render.modes': ['human', 'rgb_array'],
@@ -423,25 +362,6 @@ class FutureTradingEnv(gym.Env):
 
         self.action_buffer.append(action[0])
 
-        # get states
-        # make action: position, current_cash, average_position_price, current_account_valuation changes
-        # calculate reward for current action
-        # move 1 tick: current_chart index, current_price, average_position_price, current_account_valuation, tick_to_close changes
-
-        # done = self.tick_to_close == 0
-
-        if not self.train:
-            print(f'-------- DATE: {self.current_date} TTC: {self.tick_to_close} ----------')
-            print(f'초기 계좌 평가액: {self.initial_account_valuation}')
-            print(f'현재가: {self.current_price}')
-            print(f'계좌 평가액: {self.current_account_valuation}')
-            print(f'현금: {self.current_cash}')
-            print(f'포지션 평가액: {self.current_position_valuation}')
-            print(f'평단가: {self.average_position_price}')
-            print(f'포지션: {self.position}')
-            print(f'normalized position: {self.normalized_position}')
-            print('')
-
         # new_normalized_position = action[0] if not done else 0.
         new_normalized_position = action[0]
         old_position = self.position
@@ -483,27 +403,6 @@ class FutureTradingEnv(gym.Env):
 
         # tick
         # evaluate current_price
-        self.tick_to_close -= 1
-        for ic in self.input_config:
-            if ic == '1분':
-                self.current_chart[ic]['current_idx'] += 1
-                new_idx = self.current_chart[ic]['current_idx']
-                columns = self.current_chart[ic]['columns']
-                past_tick_price = self.current_price
-                self.current_price = self.current_chart[ic]['data'][new_idx][columns.index('close')]
-                if use_reward_p:  # position reward
-                    delta_price = self.current_price - past_tick_price
-                    position_reward = delta_price * self.position / self.initial_account_valuation
-                    # position_reward = position_reward ** 3
-                    if not self.train:
-                        print(f'delta position: {delta_price * self.position}')
-                    if position_reward > 0 or allow_negative_p:  # allow negative?
-                        if weight_positive_p is not None:
-                            position_reward = position_reward * weight_positive_p if position_reward > 0 else position_reward
-                        reward += position_reward
-                if holded and use_hold_bonus:  # hold bonus
-                    if self.position != 0:
-                        reward += 0.01
 
         done = self.tick_to_close == 0
         if done:
@@ -601,66 +500,4 @@ class FutureTradingEnv(gym.Env):
         self.current_date = self.parsed_date_list[self.current_date_idx]
         assert self.current_date_idx in self.simulatable_date_idx_list, 'Given date is not in range of simulation'
 
-        self.current_chart = dict()
-        assert '1분' in self.input_config, '1분봉은 필수'
 
-        for ic in self.input_config:
-            if ic == '1분':
-                self._prepare_1min_chart()
-            elif ic == '60분':
-                required_past_dates = math.ceil(self.input_config[ic]['N'] / 7)
-                raise NotImplementedError
-            elif ic == '1일':
-                required_past_dates = math.ceil(self.input_config[ic]['N'])
-                raise NotImplementedError
-
-        if self.tick_to_close == self.ticks_per_trading_day - 1:  # cash 100%
-            self.average_position_price = 0
-            self.position = 0
-            self.current_cash = int(np.random.uniform(500, 10000)) * 1000
-            # self.current_cash = 10000000
-            self.checkpoint_account_valuation = self.initial_account_valuation = self.current_account_valuation
-            self.current_cash = self.initial_account_valuation
-        else:
-            self.average_position_price = self.current_price + int(np.random.uniform(-30, 30)) * int(self.current_price * 0.001)
-            self.position = int(np.random.uniform(-1, 1) * (10000000 // self.current_price))
-            self.current_cash = int(np.random.uniform(1, 10000)) * 1000
-            self.checkpoint_account_valuation = self.initial_account_valuation = self.current_account_valuation
-
-        return self._observe()
-
-    def render(self, mode='human'):
-        print('\n------------- RENDER START -------------')
-        print(f'code: {self.current_code}, date: {self.current_date} profit: {self.get_daily_profit() * 100:.3f}%')
-        print(self.action_buffer)
-        print('------------- RENDER DONE -------------\n')
-
-    def close(self):
-        if self.viewer:
-            self.viewer.close()
-            self.viewer = None
-
-
-if __name__ == '__main__':
-    db_file_path = 'db/200810_025124_주식분봉_122630.db'
-    env = FutureTradingEnv(db_file_path=db_file_path, start_date=20190801, end_date=20200131, input_config={'1분': {'N': 128, 'columns': ['open', 'high', 'low', 'close']}})
-
-    d = env.reset()
-    while True:
-        cav, iav, price, ttc, cpv, cash, p, app, norm_p = env.current_account_valuation, env.initial_account_valuation, env.current_price, env.tick_to_close, env.current_position_valuation, env.current_cash, env.position, env.average_position_price, env.normalized_position
-        print('-----계좌 정보-----')
-        print(f'초기 계좌 평가액: {iav}')
-        print(f'현재가: {price}')
-        print(f'계좌 평가액: {cav}')
-        print(f'현금: {cash}')
-        print(f'포지션 평가액: {cpv}')
-        print(f'평단가: {app}')
-        print(f'포지션: {p}')
-        print(f'normalized position: {norm_p}')
-        action = np.random.uniform(-1, 1, (1,))
-        print(f'-----action = {action}-----')
-        _, reward, done, _ = env.step(action)
-        print(f'reward: {reward}')
-        print(f'done: {done}')
-        print(f'-----------------------------\n')
-    print(d)
